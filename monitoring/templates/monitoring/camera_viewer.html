@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Viewer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .camera-feed {
+            background-color: #000;
+            position: relative;
+            width: 100%;
+            height: 300px;
+            margin-bottom: 10px;
+        }
+        .camera-controls {
+            margin-top: 10px;
+        }
+        .camera-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0,0,0,0.5);
+            padding: 5px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">Smart Office Monitoring</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/api/monitoring/viewer/">Camera Viewer</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/admin/">Admin</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>Camera Viewer</h1>
+        
+        <div class="row" id="camera-container">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    Loading cameras...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fetch cameras
+            fetchCameras();
+            
+            // Set up polling for active cameras
+            setInterval(updateActiveCameras, 1000);
+        });
+        
+        function fetchCameras() {
+            fetch('/api/monitoring/cameras/')
+                .then(response => response.json())
+                .then(data => {
+                    renderCameras(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching cameras:', error);
+                    document.getElementById('camera-container').innerHTML = `
+                        <div class="col-12">
+                            <div class="alert alert-danger">
+                                Error loading cameras. Please try again later.
+                            </div>
+                        </div>
+                    `;
+                });
+        }
+        
+        function renderCameras(cameras) {
+            const container = document.getElementById('camera-container');
+            
+            if (cameras.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-warning">
+                            No cameras found. Please add cameras in the admin panel.
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            cameras.forEach(camera => {
+                html += `
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5>${camera.name}</h5>
+                                <span class="badge ${getBadgeClass(camera.status)}">${camera.status}</span>
+                            </div>
+                            <div class="card-body">
+                                <p><strong>Location:</strong> ${camera.location}</p>
+                                <p><strong>IP:</strong> ${camera.ip_address}:${camera.port}</p>
+                                <div id="camera-feed-${camera.id}" class="camera-feed">
+                                    <div class="d-flex justify-content-center align-items-center h-100">
+                                        <p class="text-white">Camera feed not active</p>
+                                    </div>
+                                    <div class="camera-status" id="camera-status-${camera.id}">Inactive</div>
+                                </div>
+                                <div class="camera-controls">
+                                    <button class="btn btn-primary start-stream" data-camera-id="${camera.id}">Start Stream</button>
+                                    <button class="btn btn-danger stop-stream" data-camera-id="${camera.id}">Stop Stream</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+            
+            // Add event listeners to buttons
+            document.querySelectorAll('.start-stream').forEach(button => {
+                button.addEventListener('click', function() {
+                    const cameraId = this.getAttribute('data-camera-id');
+                    startCameraStream(cameraId);
+                });
+            });
+            
+            document.querySelectorAll('.stop-stream').forEach(button => {
+                button.addEventListener('click', function() {
+                    const cameraId = this.getAttribute('data-camera-id');
+                    stopCameraStream(cameraId);
+                });
+            });
+        }
+        
+        function getBadgeClass(status) {
+            switch(status) {
+                case 'active': return 'bg-success';
+                case 'inactive': return 'bg-secondary';
+                case 'maintenance': return 'bg-warning';
+                default: return 'bg-secondary';
+            }
+        }
+        
+        function startCameraStream(cameraId) {
+            fetch(`/api/monitoring/cameras/${cameraId}/start_stream/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById(`camera-status-${cameraId}`).textContent = 'Active';
+                    document.getElementById(`camera-status-${cameraId}`).style.backgroundColor = 'rgba(40,167,69,0.7)';
+                } else {
+                    alert('Failed to start camera: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error starting camera:', error);
+            });
+        }
+        
+        function stopCameraStream(cameraId) {
+            fetch(`/api/monitoring/cameras/${cameraId}/stop_stream/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const feedElement = document.getElementById(`camera-feed-${cameraId}`);
+                    feedElement.innerHTML = `
+                        <div class="d-flex justify-content-center align-items-center h-100">
+                            <p class="text-white">Camera feed stopped</p>
+                        </div>
+                        <div class="camera-status" id="camera-status-${cameraId}">Inactive</div>
+                    `;
+                } else {
+                    alert('Failed to stop camera: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error stopping camera:', error);
+            });
+        }
+        
+        function updateActiveCameras() {
+            // Get all cameras with active status
+            document.querySelectorAll('.camera-status').forEach(statusElement => {
+                if (statusElement.textContent === 'Active') {
+                    const cameraId = statusElement.id.replace('camera-status-', '');
+                    updateCameraFrame(cameraId);
+                }
+            });
+        }
+        
+        function updateCameraFrame(cameraId) {
+            fetch(`/api/monitoring/cameras/${cameraId}/get_frame/`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const feedElement = document.getElementById(`camera-feed-${cameraId}`);
+                        feedElement.innerHTML = `
+                            <img src="data:image/jpeg;base64,${data.frame}" alt="Camera Feed" style="width:100%; height:100%; object-fit:contain;">
+                            <div class="camera-status" id="camera-status-${cameraId}" style="background-color:rgba(40,167,69,0.7);">Active</div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error(`Error updating camera ${cameraId} frame:`, error);
+                });
+        }
+        
+        // Helper function to get CSRF token
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
